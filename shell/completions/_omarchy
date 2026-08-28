@@ -1,5 +1,9 @@
 #compdef omarchy
 
+# Mirrors basecamp/omarchy default/bash/completions: discover subcommands by
+# globbing omarchy-<word>-... siblings next to the dispatcher, then complete
+# # omarchy:args= alternatives, then files.
+
 _omarchy_summary_from_file() {
   local file="$1" line
   REPLY=""
@@ -16,26 +20,135 @@ _omarchy_summary_from_file() {
   return 1
 }
 
-_omarchy() {
-  local omarchy_path bin_dir
-  omarchy_path=$(command -v omarchy 2>/dev/null) || return 0
-  bin_dir=$(dirname -- "$(readlink -f -- "$omarchy_path" 2>/dev/null || printf '%s' "$omarchy_path")")
-  [[ -d $bin_dir ]] || return 0
+_omarchy_args_from_file() {
+  local file="$1" line
+  REPLY=""
 
-  local prefix="omarchy"
-  local i part
+  [[ -r $file ]] || return 1
+
+  while IFS= read -r line; do
+    if [[ $line == '# omarchy:args='* ]]; then
+      REPLY="${line#'# omarchy:args='}"
+      return 0
+    fi
+  done < "$file"
+
+  return 1
+}
+
+_omarchy_add() {
+  local word="$1" summary="${2:-}"
+  [[ -n $word && -z ${_omarchy_seen[$word]:-} ]] || return 0
+  _omarchy_seen[$word]=1
+  _omarchy_candidates+=("$word")
+  [[ -n $summary ]] && _omarchy_descriptions[$word]="$summary"
+}
+
+_omarchy_collect_args() {
+  local command_prefix command_path first_arg_index n j part
+  local args spec_token actual value match current_arg_index alt
+  local -a spec_words alt_words arg_alts
+
+  for ((n = CURRENT - 1; n >= 1; n--)); do
+    command_prefix="omarchy"
+    for ((j = 2; j <= n; j++)); do
+      part="${words[j]}"
+      [[ -z $part || $part == -* ]] && continue
+      command_prefix+="-$part"
+    done
+
+    command_path="$_omarchy_bin_dir/$command_prefix"
+    if [[ -x $command_path ]]; then
+      first_arg_index=$((n + 1))
+      break
+    fi
+  done
+
+  [[ -n ${command_path:-} && -x $command_path ]] || return 0
+  _omarchy_args_from_file "$command_path" || return 0
+  args="$REPLY"
+  [[ -n $args ]] || return 0
+
+  current_arg_index=$((CURRENT - first_arg_index))
+  (( current_arg_index >= 0 )) || return 0
+
+  arg_alts=("${(s: | :)args}")
+  for alt in "${arg_alts[@]}"; do
+    [[ -n $alt ]] || continue
+    spec_words=(${=alt})
+    match=true
+
+    for ((j = 0; j < current_arg_index; j++)); do
+      spec_token="${spec_words[j+1]:-}"
+      actual="${words[first_arg_index + j]:-}"
+      if [[ -z $spec_token ]]; then
+        match=false
+        break
+      fi
+
+      if [[ $spec_token == \<*\> || $spec_token == \[*\] ]]; then
+        value="${spec_token#<}"
+        value="${value#\[}"
+        value="${value%>}"
+        value="${value%\]}"
+        if [[ $value == *'|'* ]]; then
+          [[ " ${value//|/ } " == *" $actual "* ]] || match=false
+        fi
+      elif [[ $spec_token != "$actual" ]]; then
+        match=false
+      fi
+    done
+
+    [[ $match == true ]] || continue
+
+    spec_token="${spec_words[current_arg_index+1]:-}"
+    [[ -n $spec_token ]] || continue
+
+    if [[ $spec_token == \<*\> || $spec_token == \[*\] ]]; then
+      value="${spec_token#<}"
+      value="${value#\[}"
+      value="${value%>}"
+      value="${value%\]}"
+      if [[ $value == *'|'* ]]; then
+        alt_words=(${(s:|:)value})
+        for actual in "${alt_words[@]}"; do
+          _omarchy_add "$actual"
+        done
+      fi
+    else
+      _omarchy_add "$spec_token"
+    fi
+  done
+}
+
+_omarchy() {
+  local omarchy_path file basename rest next exact_file summary prefix i part
+  local -a described_candidates
+  local -A descendant_counts has_exact_summary
+
+  typeset -gA _omarchy_seen _omarchy_descriptions
+  typeset -ga _omarchy_candidates _omarchy_matches
+  typeset -g _omarchy_bin_dir _omarchy_used_files
+
+  _omarchy_seen=()
+  _omarchy_descriptions=()
+  _omarchy_candidates=()
+  _omarchy_matches=()
+  _omarchy_used_files=0
+
+  omarchy_path=$(command -v omarchy 2>/dev/null) || return 0
+  _omarchy_bin_dir=$(dirname -- "$(readlink -f -- "$omarchy_path" 2>/dev/null || printf '%s' "$omarchy_path")")
+  [[ -d $_omarchy_bin_dir ]] || return 0
+
+  prefix="omarchy"
   for ((i = 2; i < CURRENT; i++)); do
     part="${words[i]}"
     [[ -z $part || $part == -* ]] && continue
     prefix+="-$part"
   done
 
-  local -A seen=() descriptions=() descendant_counts=() has_exact_summary=()
-  local -a candidates=() described_candidates=()
-  local file basename rest next exact_file summary
-
   setopt local_options null_glob
-  for file in "$bin_dir/$prefix"-*; do
+  for file in "$_omarchy_bin_dir/$prefix"-*; do
     [[ -f $file && -x $file ]] || continue
     basename="${file:t}"
     rest="${basename#$prefix-}"
@@ -44,32 +157,45 @@ _omarchy() {
 
     (( descendant_counts[$next]++ ))
 
-    if [[ -z ${seen[$next]:-} ]]; then
-      seen[$next]=1
-      candidates+=("$next")
+    if [[ -z ${_omarchy_seen[$next]:-} ]]; then
+      _omarchy_add "$next"
 
-      exact_file="$bin_dir/$prefix-$next"
+      exact_file="$_omarchy_bin_dir/$prefix-$next"
       if [[ -f $exact_file && -x $exact_file ]] && _omarchy_summary_from_file "$exact_file"; then
-        descriptions[$next]="$REPLY"
+        _omarchy_descriptions[$next]="$REPLY"
         has_exact_summary[$next]=1
       elif _omarchy_summary_from_file "$file"; then
-        descriptions[$next]="$REPLY"
+        _omarchy_descriptions[$next]="$REPLY"
       fi
     fi
   done
 
   if (( CURRENT == 2 )); then
-    candidates+=("commands")
-    descriptions[commands]="List documented Omarchy commands"
+    _omarchy_add "commands" "List documented Omarchy commands"
     has_exact_summary[commands]=1
   fi
 
-  if (( ${#candidates[@]} == 0 )); then
-    return 0
+  if [[ ${words[2]:-} == "commands" ]] && (( CURRENT >= 3 )); then
+    _omarchy_add "--all" "Include hidden commands"
+    _omarchy_add "--json" "Machine-readable listing"
+    _omarchy_add "--markdown" "Markdown listing"
+    _omarchy_add "--check" "Validate command metadata"
   fi
 
-  for next in "${candidates[@]}"; do
-    summary="${descriptions[$next]:-}"
+  if (( ${#_omarchy_candidates} == 0 )); then
+    _omarchy_collect_args
+  fi
+
+  _omarchy_matches=("${_omarchy_candidates[@]}")
+
+  if (( ${#_omarchy_matches} == 0 )); then
+    _omarchy_used_files=1
+    _files
+    return
+  fi
+
+  for next in "${_omarchy_candidates[@]}"; do
+    summary="${_omarchy_descriptions[$next]:-}"
     if (( ${descendant_counts[$next]:-0} > 1 )) && [[ -z ${has_exact_summary[$next]:-} ]]; then
       summary="Omarchy $next commands"
     fi
@@ -80,4 +206,8 @@ _omarchy() {
   _describe -t omarchy-commands 'omarchy command' described_candidates -S " " -q
 }
 
-_omarchy "$@"
+# Tests source this file with _omarchy_skip_invoke set so they can call
+# _omarchy themselves after mocking _describe/_files.
+if (( ! $+_omarchy_skip_invoke )); then
+  _omarchy "$@"
+fi
