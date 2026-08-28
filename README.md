@@ -56,6 +56,12 @@ sudo pacman -S omarchy-zsh
 omarchy-setup-zsh
 ```
 
+The package also installs `/usr/share/zsh/site-functions/_omarchy`, which is on zsh's default `fpath`. Tab-completing `omarchy` works in any zsh that runs `compinit` — including a custom `~/.zshrc` that never calls `omarchy-setup-zsh`. Completions cover dispatcher subcommands, `omarchy commands` flags, `# omarchy:args=` alternatives, and files when the next argument is a path.
+
+```bash
+zsh test/completions.zsh
+```
+
 ## fzf Keybindings
 
 - **Ctrl+Alt+F** - Search files/directories
