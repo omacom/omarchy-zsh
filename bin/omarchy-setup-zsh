@@ -11,6 +11,23 @@ BASHRC_BACKUP="${HOME}/.bashrc.backup-$(date +%Y%m%d-%H%M%S)"
 
 echo "Setting zsh as your default shell..."
 
+ZSH_PATH="$(command -v zsh)"
+CURRENT_SHELL="$(getent passwd "$USER" | cut -d: -f7)"
+if [ "$CURRENT_SHELL" != "$ZSH_PATH" ]; then
+  echo "Changing login shell from ${CURRENT_SHELL:-unknown} to ${ZSH_PATH}..."
+  if chsh -s "$ZSH_PATH"; then
+    echo "Login shell changed to ${ZSH_PATH}."
+  else
+    echo "Could not change login shell automatically." >&2
+    echo "Run manually and then log out/in:" >&2
+    echo "  chsh -s ${ZSH_PATH}" >&2
+  fi
+else
+  echo "Login shell is already ${ZSH_PATH}."
+fi
+
+echo ""
+
 # Install .zshrc
 if [ -f "${ZSHRC}" ]; then
   cp "${ZSHRC}" "${ZSHRC_BACKUP}"
@@ -38,4 +55,6 @@ if [ -f "${BASHRC_BACKUP}" ]; then
   echo "    ${BASHRC_BACKUP}"
   echo ""
 fi
-echo "Restart your terminal to activate zsh"
+echo "Restart your terminal to activate zsh."
+echo "Note: fully log out/in once after a login-shell change so \$SHELL updates"
+echo "(new terminals auto-launch zsh via ~/.bashrc even before that)."
