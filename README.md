@@ -52,8 +52,16 @@ Green = shared (from omadots). Blue = zsh-specific (from this repo).
 # Install the package
 sudo pacman -S omarchy-zsh
 
-# Setup zsh (optional: auto-launch from bash)
+# Setup zsh (installs ~/.zshrc, bash auto-launch, and chsh to zsh)
 omarchy-setup-zsh
+```
+
+`omarchy-setup-zsh` changes your login shell with `chsh -s $(command -v zsh)`.
+Log out/in once afterwards so `$SHELL` updates (new terminals auto-launch
+zsh via `~/.bashrc` even before that). If `chsh` fails, run it manually:
+
+```bash
+chsh -s /usr/bin/zsh
 ```
 
 ## fzf Keybindings
